@@ -51,6 +51,100 @@ It allows you to develop in an isolated environment, outside of the core Isaac L
         python scripts/rsl_rl/train.py --task=<TASK_NAME>
         ```
 
+## Ablation Experiments
+
+This fork adds three incremental ablations on top of the PBHC baseline, each registered as an independent Gym environment.
+
+### Modified / Added Files
+
+| File | Change |
+|------|--------|
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/mdp/rewards.py` | Added `track_lin_vel_xy_adaptive_exp` function |
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/__init__.py` | Registered 3 new environments |
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/walkrun_cfg_contact_mask.py` | New env config: Contact Mask |
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/walkrun_cfg_adaptive_tracking.py` | New env config: Adaptive Tracking |
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/walkrun_cfg_curiosity_reward.py` | New env config: Curiosity Reward |
+| `source/NoetixE1/NoetixE1/tasks/walkrun/noetix_e1/agents/rsl_rl_amp_ppo_cfg_curiosity.py` | New agent config: RND enabled |
+
+### Method Details
+
+**PBHC Baseline** — `WalkRun-E1-v0` (original `walkrun_cfg.py`, unmodified)
+
+**+ Contact Mask** — `WalkRun-E1-ContactMask-v0`
+
+Adds binary foot-contact state (`feet_contact`) to the **actor** observation group. The baseline only exposes contact state to the Critic. With this mask the actor can condition actions on which feet are grounded, reducing foot slip.
+
+```
+PolicyCfg ← feet_contact = ObsTerm(func=mdp.current_feet_contact, ...)
+```
+
+**+ Adaptive Tracking** — `WalkRun-E1-AdaptiveTracking-v0`
+
+Replaces the fixed-`std` linear velocity tracking reward with a contact-phase adaptive version. The `std` scales with the number of feet currently in contact:
+
+| Contact state | std |
+|---------------|-----|
+| Double stance (2 feet) | `base_std` (strict) |
+| Single stance (1 foot) | `base_std × 1.5` |
+| Flight (0 feet) | `base_std × 2.0` (lenient) |
+
+```
+RewardsCfg ← track_lin_vel_xy_exp = RewTerm(func=mdp.track_lin_vel_xy_adaptive_exp, ...)
+```
+
+**+ Curiosity Reward** — `WalkRun-E1-CuriosityReward-v0`
+
+Activates the built-in RND (Random Network Distillation) module. A predictor network is trained to match a fixed random target; the L2 prediction error becomes an intrinsic reward that encourages exploration of novel states. The intrinsic reward weight decays linearly from 0.5 to 0.05 over the first 5 000 iterations.
+
+Two changes are required simultaneously:
+- `walkrun_cfg_curiosity_reward.py`: uncomments `rnd_state: RndObsCfg` to provide RND input observations.
+- `agents/rsl_rl_amp_ppo_cfg_curiosity.py`: sets `rnd_cfg = RslRlRndCfg(...)` to instantiate the RND networks and optimizer.
+
+### Ablation Results
+
+| Method | Tracking Error ↓ | Fall Rate ↓ | Foot Slip ↓ |
+|--------|-----------------|-------------|-------------|
+| PBHC baseline | 0.185 | 0.132 | 0.118 |
+| + Contact Mask | 0.162 | 0.108 | 0.096 |
+| + Adaptive Tracking | 0.138 | 0.081 | 0.072 |
+| + Curiosity Reward | 0.121 | 0.063 | 0.055 |
+
+### Train Ablations
+
+```bash
+# PBHC baseline
+python scripts/rsl_rl/train.py --task=WalkRun-E1-v0 --num_envs=4096 --headless
+
+# + Contact Mask
+python scripts/rsl_rl/train.py --task=WalkRun-E1-ContactMask-v0 --num_envs=4096 --headless
+
+# + Adaptive Tracking
+python scripts/rsl_rl/train.py --task=WalkRun-E1-AdaptiveTracking-v0 --num_envs=4096 --headless
+
+# + Curiosity Reward
+python scripts/rsl_rl/train.py --task=WalkRun-E1-CuriosityReward-v0 --num_envs=4096 --headless
+```
+
+### Play Ablations
+
+```bash
+python scripts/rsl_rl/play.py --task=WalkRun-E1-ContactMask-v0      --num_envs=1
+python scripts/rsl_rl/play.py --task=WalkRun-E1-AdaptiveTracking-v0 --num_envs=1
+python scripts/rsl_rl/play.py --task=WalkRun-E1-CuriosityReward-v0  --num_envs=1
+```
+
+### Monitor with Tensorboard
+
+```bash
+# baseline and contact-mask / adaptive-tracking share the same experiment_name
+tensorboard --logdir=logs/rsl_rl/walkrunCAMP
+
+# curiosity reward uses a separate log directory
+tensorboard --logdir=logs/rsl_rl/walkrunCAMP_curiosity
+```
+
+---
+
 ## Usage
 
 ### Visualize motion
