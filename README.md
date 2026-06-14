@@ -100,15 +100,6 @@ Two changes are required simultaneously:
 - `walkrun_cfg_curiosity_reward.py`: uncomments `rnd_state: RndObsCfg` to provide RND input observations.
 - `agents/rsl_rl_amp_ppo_cfg_curiosity.py`: sets `rnd_cfg = RslRlRndCfg(...)` to instantiate the RND networks and optimizer.
 
-### Ablation Results
-
-| Method | Tracking Error ↓ | Fall Rate ↓ | Foot Slip ↓ |
-|--------|-----------------|-------------|-------------|
-| PBHC baseline | 0.185 | 0.132 | 0.118 |
-| + Contact Mask | 0.162 | 0.108 | 0.096 |
-| + Adaptive Tracking | 0.138 | 0.081 | 0.072 |
-| + Curiosity Reward | 0.121 | 0.063 | 0.055 |
-
 ### Train Ablations
 
 ```bash
