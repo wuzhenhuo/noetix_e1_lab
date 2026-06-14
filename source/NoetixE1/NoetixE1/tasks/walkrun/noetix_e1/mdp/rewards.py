@@ -167,3 +167,34 @@ def undesired_contacts(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: Sce
     net_contact_forces = contact_sensor.data.net_forces_w_history
     is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
     return torch.sum(is_contact, dim=1)
+
+
+def track_lin_vel_xy_adaptive_exp(
+    env: ManagerBasedRLEnv,
+    base_std: float,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Linear velocity tracking reward with std adapted to number of feet in contact.
+
+    Double stance (2 feet) -> std = base_std         (strict, full control authority)
+    Single stance (1 foot) -> std = base_std * 1.5   (moderate, mid-step transition)
+    Flight       (0 feet)  -> std = base_std * 2.0   (lenient, no ground contact)
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    vel_yaw = math_utils.quat_apply_inverse(
+        math_utils.yaw_quat(asset.data.root_quat_w), asset.data.root_lin_vel_w[:, :3]
+    )
+    command = env.command_manager.get_command("base_velocity")[0]
+    lin_vel_error = torch.sum(torch.square(command[:, :2] - vel_yaw[:, :2]), dim=1)
+
+    net_contact_forces = contact_sensor.data.net_forces_w_history
+    feet_contact = (
+        torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids, :], dim=-1), dim=1)[0] > 0.5
+    )
+    num_contact = feet_contact.float().sum(dim=-1)  # 0, 1, or 2
+
+    adaptive_std = base_std * (1.0 + 0.5 * (2.0 - num_contact) / 2.0)
+    return torch.exp(-lin_vel_error / adaptive_std.pow(2))
